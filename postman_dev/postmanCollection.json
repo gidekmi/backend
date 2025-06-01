@@ -1,0 +1,400 @@
+{
+    "info": {
+      "name": "Gidekmi API",
+      "description": "Complete API collection for Gidekmi mobile application backend",
+      "version": "1.0.0",
+      "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+    },
+    "variable": [
+      {
+        "key": "base_url",
+        "value": "http://localhost:8080",
+        "type": "string"
+      },
+      {
+        "key": "api_version",
+        "value": "v1",
+        "type": "string"
+      },
+      {
+        "key": "access_token",
+        "value": "",
+        "type": "string"
+      },
+      {
+        "key": "refresh_token",
+        "value": "",
+        "type": "string"
+      },
+      {
+        "key": "user_id",
+        "value": "",
+        "type": "string"
+      }
+    ],
+    "item": [
+      {
+        "name": "🏥 Health & System",
+        "item": [
+          {
+            "name": "Health Check",
+            "request": {
+              "method": "GET",
+              "header": [],
+              "url": {
+                "raw": "{{base_url}}/health",
+                "host": ["{{base_url}}"],
+                "path": ["health"]
+              }
+            },
+            "response": []
+          }
+        ]
+      },
+      {
+        "name": "🔐 Authentication",
+        "item": [
+          {
+            "name": "Register User",
+            "event": [
+              {
+                "listen": "test",
+                "script": {
+                  "type": "text/javascript",
+                  "exec": [
+                    "if (pm.response.code === 201) {",
+                    "    const response = pm.response.json();",
+                    "    pm.environment.set('access_token', response.access_token);",
+                    "    pm.environment.set('refresh_token', response.refresh_token);",
+                    "    pm.environment.set('user_id', response.user.id);",
+                    "    console.log('✅ User registered successfully');",
+                    "    console.log('🔑 Access token saved to environment');",
+                    "} else {",
+                    "    console.log('❌ Registration failed');",
+                    "}"
+                  ]
+                }
+              }
+            ],
+            "request": {
+              "method": "POST",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": {
+                "mode": "raw",
+                "raw": "{\n  \"email\": \"test@gidekmi.com\",\n  \"password\": \"Test123!@#\",\n  \"first_name\": \"Test\",\n  \"last_name\": \"User\",\n  \"phone\": \"+905551234567\",\n  \"language\": \"tr\"\n}"
+              },
+              "url": {
+                "raw": "{{base_url}}/api/{{api_version}}/auth/register",
+                "host": ["{{base_url}}"],
+                "path": ["api", "{{api_version}}", "auth", "register"]
+              }
+            },
+            "response": []
+          },
+          {
+            "name": "Login with Password",
+            "event": [
+              {
+                "listen": "test",
+                "script": {
+                  "type": "text/javascript",
+                  "exec": [
+                    "if (pm.response.code === 200) {",
+                    "    const response = pm.response.json();",
+                    "    pm.environment.set('access_token', response.access_token);",
+                    "    pm.environment.set('refresh_token', response.refresh_token);",
+                    "    pm.environment.set('user_id', response.user.id);",
+                    "    console.log('✅ Login successful');",
+                    "    console.log('🔑 Tokens saved to environment');",
+                    "} else {",
+                    "    console.log('❌ Login failed');",
+                    "}"
+                  ]
+                }
+              }
+            ],
+            "request": {
+              "method": "POST",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": {
+                "mode": "raw",
+                "raw": "{\n  \"email\": \"test@gidekmi.com\",\n  \"password\": \"Test123!@#\",\n  \"device_id\": \"postman-test-device\",\n  \"device_type\": \"web\"\n}"
+              },
+              "url": {
+                "raw": "{{base_url}}/api/{{api_version}}/auth/login",
+                "host": ["{{base_url}}"],
+                "path": ["api", "{{api_version}}", "auth", "login"]
+              }
+            },
+            "response": []
+          },
+          {
+            "name": "Request OTP Login",
+            "request": {
+              "method": "POST",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": {
+                "mode": "raw",
+                "raw": "{\n  \"email\": \"test@gidekmi.com\",\n  \"device_id\": \"postman-otp-device\",\n  \"device_type\": \"web\"\n}"
+              },
+              "url": {
+                "raw": "{{base_url}}/api/{{api_version}}/auth/login/otp",
+                "host": ["{{base_url}}"],
+                "path": ["api", "{{api_version}}", "auth", "login", "otp"]
+              }
+            },
+            "response": []
+          },
+          {
+            "name": "Verify OTP",
+            "event": [
+              {
+                "listen": "test",
+                "script": {
+                  "type": "text/javascript",
+                  "exec": [
+                    "if (pm.response.code === 200) {",
+                    "    const response = pm.response.json();",
+                    "    if (response.access_token) {",
+                    "        pm.environment.set('access_token', response.access_token);",
+                    "        pm.environment.set('refresh_token', response.refresh_token);",
+                    "        pm.environment.set('user_id', response.user.id);",
+                    "        console.log('✅ OTP verified successfully');",
+                    "    }",
+                    "} else {",
+                    "    console.log('❌ OTP verification failed');",
+                    "}"
+                  ]
+                }
+              }
+            ],
+            "request": {
+              "method": "POST",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": {
+                "mode": "raw",
+                "raw": "{\n  \"email\": \"test@gidekmi.com\",\n  \"code\": \"123456\",\n  \"type\": \"login\",\n  \"device_id\": \"postman-otp-device\",\n  \"device_type\": \"web\"\n}"
+              },
+              "url": {
+                "raw": "{{base_url}}/api/{{api_version}}/auth/verify-otp",
+                "host": ["{{base_url}}"],
+                "path": ["api", "{{api_version}}", "auth", "verify-otp"]
+              }
+            },
+            "response": []
+          },
+          {
+            "name": "Verify Email",
+            "request": {
+              "method": "POST",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": {
+                "mode": "raw",
+                "raw": "{\n  \"email\": \"test@gidekmi.com\",\n  \"code\": \"123456\",\n  \"type\": \"email_verification\"\n}"
+              },
+              "url": {
+                "raw": "{{base_url}}/api/{{api_version}}/auth/verify-otp",
+                "host": ["{{base_url}}"],
+                "path": ["api", "{{api_version}}", "auth", "verify-otp"]
+              }
+            },
+            "response": []
+          },
+          {
+            "name": "Refresh Token",
+            "event": [
+              {
+                "listen": "test",
+                "script": {
+                  "type": "text/javascript",
+                  "exec": [
+                    "if (pm.response.code === 200) {",
+                    "    const response = pm.response.json();",
+                    "    pm.environment.set('access_token', response.access_token);",
+                    "    console.log('✅ Token refreshed successfully');",
+                    "} else {",
+                    "    console.log('❌ Token refresh failed');",
+                    "}"
+                  ]
+                }
+              }
+            ],
+            "request": {
+              "method": "POST",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": {
+                "mode": "raw",
+                "raw": "{\n  \"refresh_token\": \"{{refresh_token}}\"\n}"
+              },
+              "url": {
+                "raw": "{{base_url}}/api/{{api_version}}/auth/refresh",
+                "host": ["{{base_url}}"],
+                "path": ["api", "{{api_version}}", "auth", "refresh"]
+              }
+            },
+            "response": []
+          },
+          {
+            "name": "Resend Email Verification",
+            "request": {
+              "method": "POST",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                },
+                {
+                  "key": "X-User-ID",
+                  "value": "{{user_id}}"
+                }
+              ],
+              "url": {
+                "raw": "{{base_url}}/api/{{api_version}}/auth/resend-verification",
+                "host": ["{{base_url}}"],
+                "path": ["api", "{{api_version}}", "auth", "resend-verification"]
+              }
+            },
+            "response": []
+          },
+          {
+            "name": "Logout",
+            "request": {
+              "method": "POST",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                },
+                {
+                  "key": "Authorization",
+                  "value": "Bearer {{access_token}}"
+                }
+              ],
+              "body": {
+                "mode": "raw",
+                "raw": "{\n  \"refresh_token\": \"{{refresh_token}}\"\n}"
+              },
+              "url": {
+                "raw": "{{base_url}}/api/{{api_version}}/auth/logout",
+                "host": ["{{base_url}}"],
+                "path": ["api", "{{api_version}}", "auth", "logout"]
+              }
+            },
+            "response": []
+          },
+          {
+            "name": "Logout All Devices",
+            "request": {
+              "method": "POST",
+              "header": [
+                {
+                  "key": "Authorization",
+                  "value": "Bearer {{access_token}}"
+                }
+              ],
+              "url": {
+                "raw": "{{base_url}}/api/{{api_version}}/auth/logout-all",
+                "host": ["{{base_url}}"],
+                "path": ["api", "{{api_version}}", "auth", "logout-all"]
+              }
+            },
+            "response": []
+          }
+        ]
+      },
+      {
+        "name": "👤 User Profile",
+        "item": [
+          {
+            "name": "Get Profile",
+            "request": {
+              "method": "GET",
+              "header": [
+                {
+                  "key": "Authorization",
+                  "value": "Bearer {{access_token}}"
+                }
+              ],
+              "url": {
+                "raw": "{{base_url}}/api/{{api_version}}/user/profile",
+                "host": ["{{base_url}}"],
+                "path": ["api", "{{api_version}}", "user", "profile"]
+              }
+            },
+            "response": []
+          }
+        ]
+      },
+      {
+        "name": "🔧 Testing & Development",
+        "item": [
+          {
+            "name": "Test Protected Route",
+            "request": {
+              "method": "GET",
+              "header": [
+                {
+                  "key": "Authorization",
+                  "value": "Bearer {{access_token}}"
+                }
+              ],
+              "url": {
+                "raw": "{{base_url}}/api/{{api_version}}/user/profile",
+                "host": ["{{base_url}}"],
+                "path": ["api", "{{api_version}}", "user", "profile"]
+              }
+            },
+            "response": []
+          },
+          {
+            "name": "Test Invalid Token",
+            "request": {
+              "method": "GET",
+              "header": [
+                {
+                  "key": "Authorization",
+                  "value": "Bearer invalid_token_here"
+                }
+              ],
+              "url": {
+                "raw": "{{base_url}}/api/{{api_version}}/user/profile",
+                "host": ["{{base_url}}"],
+                "path": ["api", "{{api_version}}", "user", "profile"]
+              }
+            },
+            "response": []
+          }
+        ]
+      }
+    ]
+  }
