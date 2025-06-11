@@ -1,12 +1,27 @@
 {
-    "id": "gidekmi-dev-env",
-    "name": "Gidekmi Development",
+    "id": "gidekmi-render-env",
+    "name": "Gidekmi API - Render Environment",
     "values": [
       {
-        "key": "base_url",
+        "key": "base_url_local",
         "value": "http://localhost:8080",
         "type": "default",
-        "enabled": true
+        "enabled": true,
+        "description": "Local development server"
+      },
+      {
+        "key": "base_url_render",
+        "value": "https://gidekmi-api.onrender.com",
+        "type": "default",
+        "enabled": true,
+        "description": "Production Render server"
+      },
+      {
+        "key": "base_url",
+        "value": "{{base_url_render}}",
+        "type": "default",
+        "enabled": true,
+        "description": "Current active base URL - switch between local and render"
       },
       {
         "key": "api_version",
@@ -18,32 +33,51 @@
         "key": "access_token",
         "value": "",
         "type": "secret",
-        "enabled": true
+        "enabled": true,
+        "description": "JWT access token - auto-updated by login requests"
       },
       {
         "key": "refresh_token",
         "value": "",
         "type": "secret",
-        "enabled": true
+        "enabled": true,
+        "description": "JWT refresh token - auto-updated by login requests"
       },
       {
         "key": "user_id",
         "value": "",
         "type": "default",
-        "enabled": true
+        "enabled": true,
+        "description": "Current user ID - auto-updated by login requests"
       },
       {
         "key": "test_email",
         "value": "test@gidekmi.com",
         "type": "default",
-        "enabled": true
+        "enabled": true,
+        "description": "Test user email for development"
       },
       {
         "key": "test_password",
         "value": "Test123!@#",
         "type": "secret",
-        "enabled": true
+        "enabled": true,
+        "description": "Test user password for development"
+      },
+      {
+        "key": "otp_code",
+        "value": "",
+        "type": "default",
+        "enabled": true,
+        "description": "OTP code received via email - manual input required"
+      },
+      {
+        "key": "api_key",
+        "value": "dev-api-key-2024",
+        "type": "secret",
+        "enabled": true,
+        "description": "Development API key for restricted access"
       }
     ],
     "_postman_variable_scope": "environment"
-  }
+}

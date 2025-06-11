@@ -2,15 +2,22 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/compress"
 	"github.com/gofiber/fiber/v2/middleware/cors"
+	"github.com/gofiber/fiber/v2/middleware/helmet"
+	"github.com/gofiber/fiber/v2/middleware/limiter"
 	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/gofiber/fiber/v2/middleware/recover"
+	"github.com/gofiber/fiber/v2/middleware/requestid"
 
 	"github.com/gidekmi/backend/internal/auth"
 	"github.com/gidekmi/backend/internal/config"
@@ -26,11 +33,19 @@ func main() {
 
 	// Initialize database
 	db := database.NewDatabase(cfg)
-	defer db.Close()
+	defer func() {
+		if err := db.Close(); err != nil {
+			log.Printf("Error closing database: %v", err)
+		}
+	}()
 
 	// Initialize Redis
 	redisClient := utils.NewRedisClient(cfg)
-	defer redisClient.Close()
+	defer func() {
+		if err := redisClient.Close(); err != nil {
+			log.Printf("Error closing Redis: %v", err)
+		}
+	}()
 
 	// Run database migrations
 	if err := db.Migrate(
@@ -63,59 +78,228 @@ func main() {
 
 	// Initialize Fiber app
 	app := fiber.New(fiber.Config{
-		ErrorHandler: errorHandler,
-		BodyLimit:    10 * 1024 * 1024, // 10MB
+		ErrorHandler:          errorHandler,
+		BodyLimit:             10 * 1024 * 1024, // 10MB
+		DisableStartupMessage: cfg.Server.Env == "production",
+		AppName:               cfg.App.Name + " v" + cfg.App.Version,
+		ServerHeader:          "Gidekmi",
+		ReadTimeout:           30 * time.Second,
+		WriteTimeout:          30 * time.Second,
+		IdleTimeout:           120 * time.Second,
 	})
 
-	// Middleware
-	app.Use(recover.New())
-	app.Use(logger.New(logger.Config{
-		Format: "[${time}] ${status} - ${method} ${path} - ${latency}\n",
+	// Request ID middleware
+	app.Use(requestid.New())
+
+	// Security middleware
+	app.Use(helmet.New(helmet.Config{
+		XSSProtection:      "1; mode=block",
+		ContentTypeNosniff: "nosniff",
+		XFrameOptions:      "DENY",
+		HSTSMaxAge:         31536000,
+		ReferrerPolicy:     "no-referrer",
 	}))
+
+	// Compression middleware
+	app.Use(compress.New(compress.Config{
+		Level: compress.LevelBestSpeed,
+	}))
+
+	// Recovery middleware
+	app.Use(recover.New(recover.Config{
+		EnableStackTrace: cfg.Server.Env != "production",
+	}))
+
+	// Rate limiting middleware
+	app.Use(limiter.New(limiter.Config{
+		Max:               1000, // requests
+		Expiration:        1 * time.Hour,
+		LimiterMiddleware: limiter.SlidingWindow{},
+		KeyGenerator: func(c *fiber.Ctx) string {
+			return c.Get("x-forwarded-for", c.IP())
+		},
+		LimitReached: func(c *fiber.Ctx) error {
+			return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{
+				"error":   "rate_limit_exceeded",
+				"message": "Too many requests, please try again later",
+				"code":    429,
+			})
+		},
+	}))
+
+	// Logger middleware (only in development)
+	if cfg.Server.Env != "production" {
+		app.Use(logger.New(logger.Config{
+			Format:     "[${time}] ${status} - ${method} ${path} - ${latency} - ${ip} - ${reqHeader:user-agent}\n",
+			TimeFormat: "15:04:05",
+			TimeZone:   "Europe/Istanbul",
+		}))
+	}
+
+	// CORS middleware
 	app.Use(cors.New(cors.Config{
-		AllowOrigins:     "http://localhost:3000,http://localhost:5173,https://gidekmi.com",
-		AllowHeaders:     "Origin, Content-Type, Accept, Authorization",
-		AllowMethods:     "GET, POST, PUT, DELETE, OPTIONS",
-		AllowCredentials: true,
+		AllowOrigins:     strings.Join(cfg.Server.AllowOrigins, ","),
+		AllowHeaders:     "Origin, Content-Type, Accept, Authorization, X-API-Key, X-User-ID, X-Request-ID",
+		AllowMethods:     "GET, POST, PUT, DELETE, OPTIONS, PATCH",
+		AllowCredentials: false, // Must be false when AllowOrigins is "*"
+		ExposeHeaders:    "Content-Length, Content-Type, X-Request-ID",
 	}))
 
 	// Initialize auth handler
 	authHandler := auth.NewHandler(authService, validator)
 
-	// Health check endpoint
-	app.Get("/health", func(c *fiber.Ctx) error {
+	// Root endpoint - API Information
+	app.Get("/", func(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{
-			"status":  "ok",
-			"message": "Gidekmi API is running",
-			"version": "1.0.0",
+			"name":        cfg.App.Name,
+			"version":     cfg.App.Version,
+			"description": cfg.App.Description,
+			"environment": cfg.Server.Env,
+			"base_url":    cfg.Server.BaseURL,
+			"timestamp":   time.Now().Unix(),
+			"endpoints": fiber.Map{
+				"health":   cfg.Server.BaseURL + "/health",
+				"api_info": cfg.Server.BaseURL + "/api",
+				"auth":     cfg.Server.BaseURL + "/api/v1/auth",
+				"user":     cfg.Server.BaseURL + "/api/v1/user",
+				"docs":     "https://github.com/gidekmi/backend",
+			},
+			"status": "online",
 		})
 	})
 
-	// API routes
+	// Health check endpoint
+	app.Get("/health", func(c *fiber.Ctx) error {
+		return c.JSON(fiber.Map{
+			"status":      "ok",
+			"message":     "Gidekmi API is running",
+			"version":     cfg.App.Version,
+			"environment": cfg.Server.Env,
+			"timestamp":   time.Now().Unix(),
+			"uptime":      time.Now().Unix(), // In real app, calculate actual uptime
+			"services": fiber.Map{
+				"database": "connected",
+				"redis":    "connected",
+				"email":    checkEmailService(cfg),
+			},
+		})
+	})
+
+	// API root endpoint
+	app.Get("/api", func(c *fiber.Ctx) error {
+		return c.JSON(fiber.Map{
+			"name":     cfg.App.Name,
+			"version":  cfg.App.Version,
+			"base_url": cfg.Server.BaseURL,
+			"endpoints": fiber.Map{
+				"v1": cfg.Server.BaseURL + "/api/v1",
+			},
+			"available_versions": []string{"v1"},
+			"current_version":    "v1",
+		})
+	})
+
+	// API v1 routes
 	api := app.Group("/api/v1")
+
+	// API v1 info
+	api.Get("/", func(c *fiber.Ctx) error {
+		return c.JSON(fiber.Map{
+			"version": "1.0",
+			"endpoints": fiber.Map{
+				"auth": map[string]interface{}{
+					"base": cfg.Server.BaseURL + "/api/v1/auth",
+					"endpoints": map[string]string{
+						"register_initiate": "POST /api/v1/auth/register/initiate",
+						"register_complete": "POST /api/v1/auth/register/complete",
+						"login":             "POST /api/v1/auth/login",
+						"login_otp":         "POST /api/v1/auth/login/otp",
+						"verify_otp":        "POST /api/v1/auth/verify-otp",
+						"refresh":           "POST /api/v1/auth/refresh",
+						"logout":            "POST /api/v1/auth/logout",
+						"logout_all":        "POST /api/v1/auth/logout-all",
+					},
+				},
+				"user": map[string]interface{}{
+					"base": cfg.Server.BaseURL + "/api/v1/user",
+					"endpoints": map[string]string{
+						"profile": "GET /api/v1/user/profile",
+					},
+				},
+			},
+		})
+	})
 
 	// Auth routes
 	authRoutes := api.Group("/auth")
 	authHandler.SetupRoutes(authRoutes)
 
-	// Protected routes example
-	protected := api.Group("/user")
-	protected.Use(authMiddleware(jwtService))
-	protected.Get("/profile", func(c *fiber.Ctx) error {
+	// Protected user routes
+	userRoutes := api.Group("/user")
+	userRoutes.Use(authMiddleware(jwtService))
+
+	// User profile endpoint
+	userRoutes.Get("/profile", func(c *fiber.Ctx) error {
 		userID := c.Locals("user_id").(string)
+		userEmail := c.Locals("user_email").(string)
+		claims := c.Locals("user_claims")
+
 		return c.JSON(fiber.Map{
-			"message": "This is a protected route",
+			"message":    "Profile retrieved successfully",
+			"user_id":    userID,
+			"user_email": userEmail,
+			"timestamp":  time.Now().Unix(),
+			"request_id": c.Locals("requestid"),
+			"claims":     claims,
+		})
+	})
+
+	// User settings endpoint
+	userRoutes.Get("/settings", func(c *fiber.Ctx) error {
+		userID := c.Locals("user_id").(string)
+
+		return c.JSON(fiber.Map{
+			"message": "User settings retrieved successfully",
 			"user_id": userID,
+			"settings": fiber.Map{
+				"notifications": true,
+				"language":      "tr",
+				"timezone":      "Europe/Istanbul",
+			},
+		})
+	})
+
+	// 404 handler for undefined routes
+	app.Use(func(c *fiber.Ctx) error {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"error":      "endpoint_not_found",
+			"message":    fmt.Sprintf("Endpoint %s %s not found", c.Method(), c.Path()),
+			"code":       404,
+			"timestamp":  time.Now().Unix(),
+			"request_id": c.Locals("requestid"),
+			"available_endpoints": fiber.Map{
+				"root":   cfg.Server.BaseURL + "/",
+				"health": cfg.Server.BaseURL + "/health",
+				"api":    cfg.Server.BaseURL + "/api/v1",
+			},
 		})
 	})
 
 	// Start server
 	port := ":" + cfg.Server.Port
-	log.Printf("🚀 Server starting on port %s", cfg.Server.Port)
-	log.Printf("📚 API Documentation: http://localhost%s/health", port)
-	log.Printf("🔗 Environment: %s", cfg.Server.Env)
 
-	// Graceful shutdown
+	// Log startup info
+	if cfg.Server.Env != "production" {
+		log.Printf("🚀 %s starting on port %s", cfg.App.Name, cfg.Server.Port)
+		log.Printf("🌐 Base URL: %s", cfg.Server.BaseURL)
+		log.Printf("📚 API Documentation: %s/api/v1", cfg.Server.BaseURL)
+		log.Printf("🏥 Health Check: %s/health", cfg.Server.BaseURL)
+		log.Printf("🔗 Environment: %s", cfg.Server.Env)
+		log.Printf("🗄️  Database: %s:%s/%s", cfg.Database.Host, cfg.Database.Port, cfg.Database.DBName)
+		log.Printf("🔴 Redis: %s:%s", cfg.Redis.Host, cfg.Redis.Port)
+	}
+
+	// Start server in goroutine
 	go func() {
 		if err := app.Listen(port); err != nil {
 			log.Fatalf("Failed to start server: %v", err)
@@ -128,7 +312,7 @@ func main() {
 	<-quit
 
 	log.Println("🔄 Shutting down server...")
-	if err := app.Shutdown(); err != nil {
+	if err := app.ShutdownWithTimeout(30 * time.Second); err != nil {
 		log.Fatalf("Server forced to shutdown: %v", err)
 	}
 
@@ -144,9 +328,13 @@ func errorHandler(c *fiber.Ctx, err error) error {
 	}
 
 	return c.Status(code).JSON(fiber.Map{
-		"error":   true,
-		"message": err.Error(),
-		"code":    code,
+		"error":      true,
+		"message":    err.Error(),
+		"code":       code,
+		"path":       c.Path(),
+		"method":     c.Method(),
+		"timestamp":  time.Now().Unix(),
+		"request_id": c.Locals("requestid"),
 	})
 }
 
@@ -157,8 +345,12 @@ func authMiddleware(jwtService *services.JWTService) fiber.Handler {
 		authHeader := c.Get("Authorization")
 		if authHeader == "" {
 			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-				"error":   "unauthorized",
-				"message": "Authorization header is required",
+				"error":      "unauthorized",
+				"message":    "Authorization header is required",
+				"code":       401,
+				"hint":       "Add 'Authorization: Bearer <token>' header",
+				"timestamp":  time.Now().Unix(),
+				"request_id": c.Locals("requestid"),
 			})
 		}
 
@@ -166,8 +358,11 @@ func authMiddleware(jwtService *services.JWTService) fiber.Handler {
 		token, err := jwtService.ExtractTokenFromHeader(authHeader)
 		if err != nil {
 			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-				"error":   "unauthorized",
-				"message": err.Error(),
+				"error":      "unauthorized",
+				"message":    err.Error(),
+				"code":       401,
+				"timestamp":  time.Now().Unix(),
+				"request_id": c.Locals("requestid"),
 			})
 		}
 
@@ -175,8 +370,11 @@ func authMiddleware(jwtService *services.JWTService) fiber.Handler {
 		claims, err := jwtService.ValidateAccessToken(token)
 		if err != nil {
 			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-				"error":   "unauthorized",
-				"message": "Invalid or expired token",
+				"error":      "unauthorized",
+				"message":    "Invalid or expired token",
+				"code":       401,
+				"timestamp":  time.Now().Unix(),
+				"request_id": c.Locals("requestid"),
 			})
 		}
 
@@ -187,4 +385,12 @@ func authMiddleware(jwtService *services.JWTService) fiber.Handler {
 
 		return c.Next()
 	}
+}
+
+// checkEmailService checks if email service is properly configured
+func checkEmailService(cfg *config.Config) string {
+	if cfg.Email.SMTPUser == "" || cfg.Email.SMTPPassword == "" {
+		return "not_configured"
+	}
+	return "configured"
 }

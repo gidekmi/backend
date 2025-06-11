@@ -2,6 +2,8 @@
 package auth
 
 import (
+	"time"
+
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 
@@ -24,22 +26,72 @@ func NewHandler(service *Service, validator *utils.Validator) *Handler {
 
 // SetupRoutes sets up authentication routes
 func (h *Handler) SetupRoutes(router fiber.Router) {
+	// Registration routes
 	router.Post("/register/initiate", h.InitiateRegistration)
 	router.Post("/register/complete", h.CompleteRegistration)
 	router.Post("/register", h.Register) // Deprecated, will return error
+
+	// Login routes
 	router.Post("/login", h.Login)
 	router.Post("/login/otp", h.LoginWithOTP)
+
+	// OTP routes
 	router.Post("/verify-otp", h.VerifyOTP)
 	router.Post("/resend-verification", h.ResendEmailVerification)
+
+	// Password routes
 	router.Post("/forgot-password", h.ForgotPassword)
 	router.Post("/reset-password", h.ResetPassword)
+
+	// Token routes
 	router.Post("/refresh", h.RefreshToken)
+
+	// Logout routes
 	router.Post("/logout", h.Logout)
 	router.Post("/logout-all", h.LogoutAllDevices)
 
 	// OAuth routes (placeholder for future implementation)
 	router.Get("/google", h.GoogleOAuth)
 	router.Get("/google/callback", h.GoogleOAuthCallback)
+
+	// Auth info endpoint
+	router.Get("/", h.AuthInfo)
+}
+
+// AuthInfo provides authentication endpoints information
+func (h *Handler) AuthInfo(c *fiber.Ctx) error {
+	baseURL := c.BaseURL()
+	return c.JSON(fiber.Map{
+		"service": "Authentication API",
+		"version": "1.0",
+		"endpoints": fiber.Map{
+			"registration": fiber.Map{
+				"initiate": baseURL + "/api/v1/auth/register/initiate",
+				"complete": baseURL + "/api/v1/auth/register/complete",
+			},
+			"login": fiber.Map{
+				"password": baseURL + "/api/v1/auth/login",
+				"otp":      baseURL + "/api/v1/auth/login/otp",
+			},
+			"otp": fiber.Map{
+				"verify":              baseURL + "/api/v1/auth/verify-otp",
+				"resend_verification": baseURL + "/api/v1/auth/resend-verification",
+			},
+			"password": fiber.Map{
+				"forgot": baseURL + "/api/v1/auth/forgot-password",
+				"reset":  baseURL + "/api/v1/auth/reset-password",
+			},
+			"token": fiber.Map{
+				"refresh": baseURL + "/api/v1/auth/refresh",
+			},
+			"logout": fiber.Map{
+				"single": baseURL + "/api/v1/auth/logout",
+				"all":    baseURL + "/api/v1/auth/logout-all",
+			},
+		},
+		"status":    "operational",
+		"timestamp": time.Now().Unix(),
+	})
 }
 
 // InitiateRegistration starts the registration process by sending OTP
@@ -48,7 +100,7 @@ func (h *Handler) InitiateRegistration(c *fiber.Ctx) error {
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
 			Error:   "invalid_request",
-			Message: "Invalid request body",
+			Message: "Invalid request body format",
 			Code:    fiber.StatusBadRequest,
 		})
 	}
@@ -67,7 +119,9 @@ func (h *Handler) InitiateRegistration(c *fiber.Ctx) error {
 	req.Email = utils.SanitizeInput(req.Email)
 	req.FirstName = utils.SanitizeInput(req.FirstName)
 	req.LastName = utils.SanitizeInput(req.LastName)
-	req.Phone = utils.SanitizeInput(req.Phone)
+	if req.Phone != "" {
+		req.Phone = utils.NormalizePhone(req.Phone)
+	}
 
 	// Get client info
 	ipAddress := c.IP()
@@ -83,7 +137,7 @@ func (h *Handler) InitiateRegistration(c *fiber.Ctx) error {
 		})
 	}
 
-	return c.JSON(response)
+	return c.Status(fiber.StatusOK).JSON(response)
 }
 
 // CompleteRegistration completes registration after OTP verification
@@ -92,7 +146,7 @@ func (h *Handler) CompleteRegistration(c *fiber.Ctx) error {
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
 			Error:   "invalid_request",
-			Message: "Invalid request body",
+			Message: "Invalid request body format",
 			Code:    fiber.StatusBadRequest,
 		})
 	}
@@ -146,7 +200,7 @@ func (h *Handler) Login(c *fiber.Ctx) error {
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
 			Error:   "invalid_request",
-			Message: "Invalid request body",
+			Message: "Invalid request body format",
 			Code:    fiber.StatusBadRequest,
 		})
 	}
@@ -178,7 +232,7 @@ func (h *Handler) Login(c *fiber.Ctx) error {
 		})
 	}
 
-	return c.JSON(response)
+	return c.Status(fiber.StatusOK).JSON(response)
 }
 
 // LoginWithOTP initiates OTP-based login
@@ -187,7 +241,7 @@ func (h *Handler) LoginWithOTP(c *fiber.Ctx) error {
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
 			Error:   "invalid_request",
-			Message: "Invalid request body",
+			Message: "Invalid request body format",
 			Code:    fiber.StatusBadRequest,
 		})
 	}
@@ -219,7 +273,7 @@ func (h *Handler) LoginWithOTP(c *fiber.Ctx) error {
 		})
 	}
 
-	return c.JSON(response)
+	return c.Status(fiber.StatusOK).JSON(response)
 }
 
 // VerifyOTP handles OTP verification
@@ -228,7 +282,7 @@ func (h *Handler) VerifyOTP(c *fiber.Ctx) error {
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
 			Error:   "invalid_request",
-			Message: "Invalid request body",
+			Message: "Invalid request body format",
 			Code:    fiber.StatusBadRequest,
 		})
 	}
@@ -261,17 +315,24 @@ func (h *Handler) VerifyOTP(c *fiber.Ctx) error {
 		})
 	}
 
-	return c.JSON(response)
+	return c.Status(fiber.StatusOK).JSON(response)
 }
 
 // ResendEmailVerification resends email verification OTP
 func (h *Handler) ResendEmailVerification(c *fiber.Ctx) error {
-	// Get user ID from JWT token (requires authentication)
-	userIDStr := c.Get("X-User-ID") // Or get from JWT claims
+	// Get user ID from JWT token or header
+	userIDStr := c.Get("X-User-ID")
+	if userIDStr == "" {
+		// Try to get from auth header if middleware is used
+		if userID := c.Locals("user_id"); userID != nil {
+			userIDStr = userID.(string)
+		}
+	}
+
 	if userIDStr == "" {
 		return c.Status(fiber.StatusUnauthorized).JSON(ErrorResponse{
 			Error:   "unauthorized",
-			Message: "User ID is required",
+			Message: "User ID is required. Use X-User-ID header or authenticate with valid token",
 			Code:    fiber.StatusUnauthorized,
 		})
 	}
@@ -298,7 +359,7 @@ func (h *Handler) ResendEmailVerification(c *fiber.Ctx) error {
 		})
 	}
 
-	return c.JSON(MessageResponse{
+	return c.Status(fiber.StatusOK).JSON(MessageResponse{
 		Message: "Verification email sent successfully",
 		Success: true,
 	})
@@ -310,7 +371,7 @@ func (h *Handler) ForgotPassword(c *fiber.Ctx) error {
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
 			Error:   "invalid_request",
-			Message: "Invalid request body",
+			Message: "Invalid request body format",
 			Code:    fiber.StatusBadRequest,
 		})
 	}
@@ -331,7 +392,7 @@ func (h *Handler) ForgotPassword(c *fiber.Ctx) error {
 	// TODO: Implement forgot password logic
 	// This would send a password reset email with OTP
 
-	return c.JSON(MessageResponse{
+	return c.Status(fiber.StatusOK).JSON(MessageResponse{
 		Message: "If an account exists with this email, a password reset link has been sent",
 		Success: true,
 	})
@@ -343,7 +404,7 @@ func (h *Handler) ResetPassword(c *fiber.Ctx) error {
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
 			Error:   "invalid_request",
-			Message: "Invalid request body",
+			Message: "Invalid request body format",
 			Code:    fiber.StatusBadRequest,
 		})
 	}
@@ -361,7 +422,7 @@ func (h *Handler) ResetPassword(c *fiber.Ctx) error {
 	// TODO: Implement password reset logic
 	// This would verify OTP and update password
 
-	return c.JSON(MessageResponse{
+	return c.Status(fiber.StatusOK).JSON(MessageResponse{
 		Message: "Password reset successfully",
 		Success: true,
 	})
@@ -373,7 +434,7 @@ func (h *Handler) RefreshToken(c *fiber.Ctx) error {
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
 			Error:   "invalid_request",
-			Message: "Invalid request body",
+			Message: "Invalid request body format",
 			Code:    fiber.StatusBadRequest,
 		})
 	}
@@ -402,12 +463,12 @@ func (h *Handler) RefreshToken(c *fiber.Ctx) error {
 		})
 	}
 
-	return c.JSON(response)
+	return c.Status(fiber.StatusOK).JSON(response)
 }
 
 // Logout handles user logout
 func (h *Handler) Logout(c *fiber.Ctx) error {
-	// This would require authentication middleware
+	// Get user ID from context (requires auth middleware)
 	userIDStr := c.Locals("user_id")
 	if userIDStr == nil {
 		return c.Status(fiber.StatusUnauthorized).JSON(ErrorResponse{
@@ -426,11 +487,11 @@ func (h *Handler) Logout(c *fiber.Ctx) error {
 		})
 	}
 
-	// Get refresh token from request
+	// Get refresh token from request body
 	var req struct {
 		RefreshToken string `json:"refresh_token"`
 	}
-	c.BodyParser(&req)
+	c.BodyParser(&req) // Optional, might be empty
 
 	// Logout
 	if err := h.service.Logout(userID, req.RefreshToken); err != nil {
@@ -441,7 +502,7 @@ func (h *Handler) Logout(c *fiber.Ctx) error {
 		})
 	}
 
-	return c.JSON(MessageResponse{
+	return c.Status(fiber.StatusOK).JSON(MessageResponse{
 		Message: "Logged out successfully",
 		Success: true,
 	})
@@ -449,7 +510,7 @@ func (h *Handler) Logout(c *fiber.Ctx) error {
 
 // LogoutAllDevices handles logout from all devices
 func (h *Handler) LogoutAllDevices(c *fiber.Ctx) error {
-	// This would require authentication middleware
+	// Get user ID from context (requires auth middleware)
 	userIDStr := c.Locals("user_id")
 	if userIDStr == nil {
 		return c.Status(fiber.StatusUnauthorized).JSON(ErrorResponse{
@@ -477,7 +538,7 @@ func (h *Handler) LogoutAllDevices(c *fiber.Ctx) error {
 		})
 	}
 
-	return c.JSON(MessageResponse{
+	return c.Status(fiber.StatusOK).JSON(MessageResponse{
 		Message: "Logged out from all devices successfully",
 		Success: true,
 	})
@@ -486,7 +547,7 @@ func (h *Handler) LogoutAllDevices(c *fiber.Ctx) error {
 // GoogleOAuth handles Google OAuth initiation
 func (h *Handler) GoogleOAuth(c *fiber.Ctx) error {
 	// TODO: Implement Google OAuth
-	return c.JSON(MessageResponse{
+	return c.Status(fiber.StatusNotImplemented).JSON(MessageResponse{
 		Message: "Google OAuth not implemented yet",
 		Success: false,
 	})
@@ -495,7 +556,7 @@ func (h *Handler) GoogleOAuth(c *fiber.Ctx) error {
 // GoogleOAuthCallback handles Google OAuth callback
 func (h *Handler) GoogleOAuthCallback(c *fiber.Ctx) error {
 	// TODO: Implement Google OAuth callback
-	return c.JSON(MessageResponse{
+	return c.Status(fiber.StatusNotImplemented).JSON(MessageResponse{
 		Message: "Google OAuth callback not implemented yet",
 		Success: false,
 	})
